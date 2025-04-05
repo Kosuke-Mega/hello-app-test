@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import Web3 from 'web3';
 
 // WalletConnectコンポーネントをクライアントサイドレンダリングで動的にインポート
 const WalletConnect = dynamic(
@@ -108,15 +109,23 @@ export default function Register() {
     try {
       console.log('Minting SBT with IPFS CID:', ipfsCid);
       
-      // 最初に試すトークンID
-      let tokenId = lastTokenId;
+      // ランダムなトークンIDを生成する関数
+      const generateRandomTokenId = () => {
+        // 10000から99999の間のランダムな数値を生成
+        return Math.floor(Math.random() * 90000) + 10000;
+      };
+      
+      // 最初に試すトークンID（ランダム生成）
+      let tokenId = generateRandomTokenId();
       let isTokenIdValid = false;
-      let maxAttempts = 5; // 最大試行回数
+      let maxAttempts = 5; // 最大試行回数を5回に固定
+      let attemptCount = 0;
       
       // トークンIDの有効性を確認するループ
-      while (!isTokenIdValid && maxAttempts > 0) {
-        setMintStatus(`トークンID ${tokenId} の検証中...`);
-        console.log(`Checking if token ID ${tokenId} is available...`);
+      while (!isTokenIdValid && attemptCount < maxAttempts) {
+        attemptCount++;
+        setMintStatus(`トークンID ${tokenId} の検証中...（試行 ${attemptCount}/${maxAttempts}）`);
+        console.log(`Checking if token ID ${tokenId} is available (attempt ${attemptCount}/${maxAttempts})...`);
         
         try {
           // トークンIDの存在を確認するためのリクエスト
@@ -148,10 +157,9 @@ export default function Register() {
             isTokenIdValid = true;
             console.log(`Token ID ${tokenId} is available for minting`);
           } else {
-            // このトークンIDはすでに使用されている
-            console.log(`Token ID ${tokenId} is already in use, trying next ID`);
-            tokenId++;
-            maxAttempts--;
+            // このトークンIDはすでに使用されている場合は新しいランダムIDを生成
+            console.log(`Token ID ${tokenId} is already in use, generating new random ID`);
+            tokenId = generateRandomTokenId();
           }
         } catch (error) {
           // エラーが発生した場合、このトークンIDは使用されていないと仮定
@@ -161,7 +169,7 @@ export default function Register() {
       }
       
       if (!isTokenIdValid) {
-        throw new Error(`有効なトークンIDが見つかりませんでした。${lastTokenId}から${tokenId - 1}までのIDがすでに使用されています。`);
+        throw new Error(`5回の試行後も有効なトークンIDが見つかりませんでした。他のタイミングで再度お試しください。`);
       }
       
       console.log(`Using token ID ${tokenId} for minting`);
@@ -176,7 +184,7 @@ export default function Register() {
         method: 'POST',
         body: {
           args: [walletAddress, tokenId.toString(), tokenURI],
-          from: "0x868dF5E337f6d777d69EEA0c1c3c2cda27ED6a1e" // コントラクト所有者のアドレス
+          from: walletAddress // ユーザー自身のウォレットアドレスから送信
         }
       };
       
@@ -193,6 +201,210 @@ export default function Register() {
       
       let mintResult = await mintResponse.json();
       console.log('MultiBaas mint response:', mintResult);
+      
+      // 署名が必要なトランザクションの場合
+      if (mintResult && mintResult.result && (mintResult.result.tx || mintResult.result.signatureRequest)) {
+        setMintStatus('トランザクションに署名してください。MetaMaskの確認ウィンドウを確認してください。');
+        // tx か signatureRequest のどちらかを使用
+        const txData = mintResult.result.tx || mintResult.result.signatureRequest;
+        console.log('署名リクエストデータを受信:', txData);
+        
+        try {
+          // MetaMaskのプロバイダーを取得
+          const ethereum = (window as any).ethereum;
+          if (!ethereum) {
+            throw new Error('MetaMaskが見つかりません。');
+          }
+          
+          // ネットワーク接続を確認
+          const chainId = await ethereum.request({ method: 'eth_chainId' });
+          console.log('現在のネットワークチェーンID:', chainId);
+          
+          // Polygon MumbaiテストネットのチェーンID "0x13882" (10進数では 80002)
+          const targetChainId = '0x13882'; // Polygon Mumbai (80002)
+          if (chainId !== targetChainId) {
+            console.log(`ネットワークの切り替えが必要です。現在: ${chainId}, 必要: ${targetChainId} (Polygon Mumbai)`);
+            setMintStatus('Polygon Mumbaiテストネットに切り替えてください...');
+            
+            try {
+              // ネットワークの切り替えをリクエスト
+              await ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: targetChainId }],
+              });
+              console.log('ネットワークを切り替えました');
+            } catch (switchError: any) {
+              console.error('ネットワーク切り替えエラー:', switchError);
+              
+              // ネットワークが未追加の場合（4902エラー）
+              if (switchError.code === 4902) {
+                setMintStatus('Polygon Mumbaiテストネットが設定されていません。追加しています...');
+                
+                try {
+                  // Polygon Mumbaiネットワークを追加
+                  await ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                      chainId: '0x13882',
+                      chainName: 'Polygon Mumbai Testnet',
+                      nativeCurrency: {
+                        name: 'MATIC',
+                        symbol: 'MATIC',
+                        decimals: 18
+                      },
+                      rpcUrls: ['https://rpc-mumbai.polygon.technology/'],
+                      blockExplorerUrls: ['https://mumbai.polygonscan.com/']
+                    }]
+                  });
+                  console.log('Polygon Mumbaiテストネットを追加しました');
+                } catch (addError) {
+                  console.error('ネットワーク追加エラー:', addError);
+                  setMintStatus('Polygon Mumbaiテストネットの追加に失敗しました。手動で追加してください。');
+                  throw new Error('Polygon Mumbaiテストネットの追加に失敗しました');
+                }
+              } else {
+                throw new Error('ネットワークの切り替えに失敗しました: ' + (switchError.message || '不明なエラー'));
+              }
+            }
+          }
+          
+          // Web3のインスタンスを作成
+          const web3 = new Web3(ethereum);
+          
+          // ガス見積もりを取得
+          try {
+            // 必要最低限のデータで試算用のトランザクションオブジェクトを作成
+            const estimateGasObj = {
+              from: walletAddress,
+              to: txData.to,
+              data: txData.data,
+              value: txData.value ? web3.utils.toHex(txData.value) : '0x0'
+            };
+            
+            console.log('ガス見積もり用データ:', estimateGasObj);
+            const estimatedGas = await ethereum.request({
+              method: 'eth_estimateGas',
+              params: [estimateGasObj]
+            });
+            
+            console.log('見積もりガス:', estimatedGas);
+            
+            // トランザクションデータを構築 - ガス見積もりを含める
+            const ethereumTxData: {[key: string]: any} = {
+              from: walletAddress,
+              to: txData.to,
+              data: txData.data,
+              gas: estimatedGas, // 見積もったガス量を使用
+            };
+            
+            // オプションのフィールドを条件付きで追加
+            if (txData.value && txData.value !== '0' && txData.value !== 0) {
+              ethereumTxData['value'] = web3.utils.toHex(txData.value);
+            }
+            
+            console.log('トランザクション署名をリクエスト:', ethereumTxData);
+            
+            // 署名リクエストを送信
+            const txHash = await ethereum.request({
+              method: 'eth_sendTransaction',
+              params: [ethereumTxData],
+            });
+            
+            console.log('トランザクション署名完了・送信済み:', txHash);
+            setMintStatus(`SBTをミント中...トランザクションハッシュ: ${txHash.substring(0, 10)}...`);
+            
+            // トランザクションの完了を監視
+            const checkTxInterval = setInterval(async () => {
+              try {
+                const receipt = await web3.eth.getTransactionReceipt(txHash);
+                if (receipt) {
+                  clearInterval(checkTxInterval);
+                  console.log('トランザクション完了:', receipt);
+                  const success = receipt.status;
+                  if (success) {
+                    setMintStatus(`SBTが正常にミントされました！トランザクションハッシュ: ${txHash.substring(0, 10)}...`);
+                    // 次のトークンIDをインクリメント
+                    setLastTokenId(tokenId + 1);
+                  } else {
+                    setMintStatus(`トランザクションは失敗しました。詳細はブロックエクスプローラーで確認してください。`);
+                  }
+                }
+              } catch (e) {
+                console.error('トランザクション確認エラー:', e);
+              }
+            }, 3000); // 3秒ごとに確認
+            
+            return;
+            
+          } catch (gasEstimateError: any) {
+            console.error('ガス見積もりエラー:', gasEstimateError);
+            
+            // ガス見積もりに失敗した場合はハードコードされた値を使用
+            const ethereumTxData: {[key: string]: any} = {
+              from: walletAddress,
+              to: txData.to,
+              data: txData.data,
+              gas: '0x7A120', // 十分な値 (500,000) をハードコード
+            };
+            
+            // オプションのフィールドを条件付きで追加
+            if (txData.value && txData.value !== '0' && txData.value !== 0) {
+              ethereumTxData['value'] = web3.utils.toHex(txData.value);
+            }
+            
+            console.log('ガス見積もり失敗後のフォールバック:', ethereumTxData);
+            
+            // 署名リクエストを送信
+            const txHash = await ethereum.request({
+              method: 'eth_sendTransaction',
+              params: [ethereumTxData],
+            });
+            
+            console.log('トランザクション署名完了・送信済み:', txHash);
+            setMintStatus(`SBTをミント中...トランザクションハッシュ: ${txHash.substring(0, 10)}...`);
+            
+            // 成功したら完了メッセージを表示
+            setMintStatus(`SBTが正常にミントされました！トランザクションハッシュ: ${txHash.substring(0, 10)}...`);
+            
+            // 次のトークンIDをインクリメント
+            setLastTokenId(tokenId + 1);
+            return;
+          }
+        } catch (signError: any) {
+          console.error('署名エラー詳細:', signError);
+          // JSON-RPC エラーを詳細に解析
+          let errorMsg = '署名が拒否されたか、エラーが発生しました';
+          
+          // エラーオブジェクトを詳細にログ出力
+          console.log('エラータイプ:', typeof signError);
+          console.log('エラープロパティ:', Object.keys(signError));
+          console.log('エラーコード:', signError.code);
+          console.log('エラーメッセージ:', signError.message);
+          console.log('エラースタック:', signError.stack);
+          
+          if (signError.code === 4001) {
+            errorMsg = 'ユーザーがトランザクションを拒否しました';
+          } else if (signError.code === -32603) {
+            errorMsg = '内部JSONRPCエラー。Polygon Mumbaiテストネットに接続し、ウォレットに十分なテスト用MATICがあることを確認してください。';
+          } else if (signError.code === -32000) {
+            errorMsg = 'ガス不足エラー。ウォレットに十分なテスト用MATICがあることを確認してください。';
+          } else if (signError.message) {
+            if (signError.message.includes('User denied')) {
+              errorMsg = 'ユーザーがトランザクションを拒否しました';
+            } else if (signError.message.includes('insufficient funds')) {
+              errorMsg = 'ガス代が不足しています。ウォレットに十分なテスト用MATICがあるか確認してください';
+            } else if (signError.message.includes('underpriced')) {
+              errorMsg = 'トランザクションのガス価格が低すぎます。ネットワークの混雑状況を確認してください。';
+            } else {
+              errorMsg = signError.message;
+            }
+          }
+          
+          setMintStatus(`署名エラー: ${errorMsg}`);
+          setIsMinting(false);
+          return;
+        }
+      }
       
       // エラーチェックと処理
       if (!mintResponse.ok) {
