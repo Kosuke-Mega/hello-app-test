@@ -13,13 +13,13 @@ export default function Navigation() {
   };
 
   return (
-    <nav className="bg-white shadow-sm">
+    <nav className="bg-white shadow-sm border-b border-blue-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex">
             <div className="flex-shrink-0 flex items-center">
-              <Link href="/" className="font-bold text-xl text-purple-600">
-                NFT App
+              <Link href="/" className="font-bold text-xl text-blue-600">
+                HELLO App
               </Link>
             </div>
             
@@ -29,8 +29,8 @@ export default function Navigation() {
                 href="/"
                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
                   isActive('/') 
-                    ? 'border-purple-500 text-gray-900' 
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                    ? 'border-blue-500 text-blue-900' 
+                    : 'border-transparent text-gray-500 hover:border-blue-300 hover:text-blue-700'
                 }`}
               >
                 ホーム
@@ -39,8 +39,8 @@ export default function Navigation() {
                 href="/dashboard"
                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
                   isActive('/dashboard') 
-                    ? 'border-purple-500 text-gray-900' 
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                    ? 'border-blue-500 text-blue-900' 
+                    : 'border-transparent text-gray-500 hover:border-blue-300 hover:text-blue-700'
                 }`}
               >
                 ダッシュボード
@@ -49,8 +49,8 @@ export default function Navigation() {
                 href="/profile"
                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
                   isActive('/profile') 
-                    ? 'border-purple-500 text-gray-900' 
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                    ? 'border-blue-500 text-blue-900' 
+                    : 'border-transparent text-gray-500 hover:border-blue-300 hover:text-blue-700'
                 }`}
               >
                 プロフィール
@@ -59,8 +59,8 @@ export default function Navigation() {
                 href="/register"
                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
                   isActive('/register') 
-                    ? 'border-purple-500 text-gray-900' 
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                    ? 'border-blue-500 text-blue-900' 
+                    : 'border-transparent text-gray-500 hover:border-blue-300 hover:text-blue-700'
                 }`}
               >
                 新規登録
@@ -72,7 +72,7 @@ export default function Navigation() {
           <div className="-mr-2 flex items-center sm:hidden">
             <button
               type="button"
-              className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-purple-500"
+              className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-blue-500 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
               aria-expanded="false"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             >
@@ -121,8 +121,8 @@ export default function Navigation() {
             href="/"
             className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
               isActive('/')
-                ? 'border-purple-500 text-purple-700 bg-purple-50'
-                : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
+                ? 'border-blue-500 text-blue-700 bg-blue-50'
+                : 'border-transparent text-gray-500 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700'
             }`}
           >
             ホーム
@@ -131,8 +131,8 @@ export default function Navigation() {
             href="/dashboard"
             className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
               isActive('/dashboard')
-                ? 'border-purple-500 text-purple-700 bg-purple-50'
-                : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
+                ? 'border-blue-500 text-blue-700 bg-blue-50'
+                : 'border-transparent text-gray-500 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700'
             }`}
           >
             ダッシュボード
@@ -141,8 +141,8 @@ export default function Navigation() {
             href="/profile"
             className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
               isActive('/profile')
-                ? 'border-purple-500 text-purple-700 bg-purple-50'
-                : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
+                ? 'border-blue-500 text-blue-700 bg-blue-50'
+                : 'border-transparent text-gray-500 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700'
             }`}
           >
             プロフィール
@@ -151,8 +151,8 @@ export default function Navigation() {
             href="/register"
             className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
               isActive('/register')
-                ? 'border-purple-500 text-purple-700 bg-purple-50'
-                : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
+                ? 'border-blue-500 text-blue-700 bg-blue-50'
+                : 'border-transparent text-gray-500 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700'
             }`}
           >
             新規登録

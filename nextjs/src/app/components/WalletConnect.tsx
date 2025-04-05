@@ -47,9 +47,11 @@ const POLYGON_NETWORK = {
 
 interface WalletConnectProps {
   onConnect?: (address: string) => void;
+  redirectPath?: string; // 接続後のリダイレクト先
+  onDisconnect?: () => void;
 }
 
-export default function WalletConnect({ onConnect }: WalletConnectProps) {
+export default function WalletConnect({ onConnect, redirectPath, onDisconnect }: WalletConnectProps) {
   const router = useRouter();
   const [account, setAccount] = useState<string>('');
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
@@ -170,14 +172,36 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
       }
       console.log(chainId);
 
-      // Navigate to register page after successful connection
-      router.push('/register');
+      // リダイレクト先が指定されている場合はそこに遷移
+      if (redirectPath) {
+        router.push(redirectPath);
+      }
       
     } catch (err: any) {
       console.error('Error connecting wallet:', err);
       setError(err.message || 'Failed to connect wallet');
     } finally {
       setIsConnecting(false);
+    }
+  };
+
+  // Add a disconnectWallet function
+  const disconnectWallet = async () => {
+    try {
+      // Clear account state
+      setAccount('');
+      
+      // If onDisconnect callback is provided, call it
+      if (onDisconnect) {
+        onDisconnect();
+      }
+      
+      // Redirect to home page
+      router.push('/');
+      
+    } catch (err: any) {
+      console.error('Error disconnecting wallet:', err);
+      setError(err.message || 'Failed to disconnect wallet');
     }
   };
 
@@ -199,7 +223,7 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
         <button
           onClick={connectWallet}
           disabled={isConnecting}
-          className="rounded-full bg-[#F6851B] hover:bg-[#E2761B] text-white font-medium py-2 px-6 transition-colors flex items-center gap-2"
+          className="rounded-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 transition-colors flex items-center gap-2"
         >
           {isConnecting ? (
             'Connecting...'
@@ -220,25 +244,32 @@ export default function WalletConnect({ onConnect }: WalletConnectProps) {
           )}
         </button>
       ) : (
-        <div className="connected-info p-4 border border-gray-200 rounded-lg">
+        <div className="connected-info p-4 border border-blue-200 rounded-lg bg-blue-50">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            <p className="font-medium">MetaMask接続済み</p>
+            <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+            <p className="font-medium text-blue-800">MetaMask接続済み</p>
           </div>
-          <p className="text-sm mt-2">
+          <p className="text-sm mt-2 text-blue-700">
             <span className="font-medium">アドレス:</span> {account.slice(0, 6)}...{account.slice(-4)}
           </p>
-          <p className="text-sm mt-1">
+          <p className="text-sm mt-1 text-blue-700">
             <span className="font-medium">ネットワーク:</span> {chainId === POLYGON_CHAIN_ID ? 'Polygon' : chainId}
           </p>
           {chainId !== POLYGON_CHAIN_ID && (
             <button
               onClick={switchToPolygon}
-              className="mt-3 text-sm bg-purple-600 text-white px-4 py-1 rounded-full hover:bg-purple-700"
+              className="mt-3 text-sm bg-blue-600 text-white px-4 py-1 rounded-full hover:bg-blue-700"
             >
               Polygonに切り替え
             </button>
           )}
+          
+          <button
+            onClick={disconnectWallet}
+            className="mt-3 w-full text-sm bg-red-600 text-white px-4 py-1 rounded-full hover:bg-red-700"
+          >
+            ウォレット接続解除
+          </button>
         </div>
       )}
       

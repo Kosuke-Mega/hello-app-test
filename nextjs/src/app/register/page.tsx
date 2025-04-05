@@ -4,6 +4,23 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import Web3 from 'web3';
+import { ethers } from 'ethers';
+import { encodeContentHash, decodeContentHash } from './app/cidEncode';
+// abi/ensRegisterControllerABI.json
+import ensRegisterControllerAbi from './abi/ensRegisterControllerABI.json';
+
+// abi/ensRegistrarABI.json
+import ensRegistrarAbi from './abi/ensRegistryABI.json';
+
+// abi/ensResolverABI.json
+import ensResolverAbi from './abi/ensResolverABI.json';
+
+// MetaMaskの型定義
+declare global {
+  interface Window {
+    ethereum: any;
+  }
+}
 
 // WalletConnectコンポーネントをクライアントサイドレンダリングで動的にインポート
 const WalletConnect = dynamic(
@@ -19,6 +36,10 @@ export default function Register() {
   const SBT_CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_MULTIBAAS_VOTING_ADDRESS_ALIAS || '0x5E1801208afe7f165ae20cFaFE8bE2d5b1265963';
   const SBT_CONTRACT_LABEL = process.env.NEXT_PUBLIC_MULTIBAAS_VOTING_CONTRACT_LABEL || 'soulboundtoken1';
 
+  const ENS_REGISTER_CONTROLLER_ADDRESS = '0xFED6a969AaA60E4961FCD3EBF1A2e8913ac65B72';
+  const ENS_REGISTRAR_ADDRESS = '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e';
+  const ENS_RESOLVER_ADDRESS = '0x8FADE66B79cC9f707aB26799354482EB93a5B7dD';
+
   const [formData, setFormData] = useState({
     name: '',
     company: '',
@@ -31,6 +52,7 @@ export default function Register() {
   const [lastTokenId, setLastTokenId] = useState(0);
   const [isMinting, setIsMinting] = useState(false);
   const [mintStatus, setMintStatus] = useState('');
+  const [isRegisteringENS, setIsRegisteringENS] = useState(false);
 
   // ウォレット接続時にアドレスを保存
   const handleWalletConnect = (address: string) => {
@@ -96,6 +118,59 @@ export default function Register() {
       [name]: value
     }));
   };
+
+  const saveIPFS = async () => {
+
+    const jsonData = {
+        name: formData.name,
+        company: formData.company,
+        email: formData.email,
+        telNumber: formData.telNumber,
+        url: formData.url,
+        profileText: formData.profileText
+    //   },
+    //   timestamp: new Date().toISOString()
+    };
+
+    const pinataBody = {
+        pinataContent: jsonData,
+        pinataMetadata: {
+          name: `${formData.name}.json`,
+          keyvalues: {
+            source: 'hello-app',
+            timestamp: new Date().toISOString(),
+            // recordCount: jsonData.length || 0
+          }
+        },
+        pinataOptions: {
+          cidVersion: 0
+        }
+      };
+
+    console.log(jsonData);
+
+    const response = await fetch(PINATA_API_URL, {
+      method: 'POST',
+      body: JSON.stringify(pinataBody),
+      headers: {
+        'Authorization': `Bearer ${PINATA_JWT}`,
+        'Content-Type': 'application/json',
+      }
+    });
+
+    console.log(response);
+    const responseData = await response.json();
+    console.log(responseData);
+    
+    if (response.ok) {
+      console.log('Successfully uploaded to IPFS with CID:', responseData.IpfsHash);
+      // CIDを保存して後でNFTミント時に使用
+      return responseData.IpfsHash;
+    } else {
+      console.error('Failed to upload to IPFS:', responseData);
+      throw new Error('Failed to upload to IPFS');
+    }
+  }
 
   const mintSBT = async (ipfsCid: string) => {
     if (!walletAddress) {
@@ -210,66 +285,66 @@ export default function Register() {
         console.log('署名リクエストデータを受信:', txData);
         
         try {
-          // MetaMaskのプロバイダーを取得
-          const ethereum = (window as any).ethereum;
-          if (!ethereum) {
-            throw new Error('MetaMaskが見つかりません。');
+          // Web3インスタンスの作成
+          if (!window.ethereum) {
+            throw new Error('MetaMaskが見つかりません。MetaMaskをインストールしてください。');
           }
+          console.log('MetaMask接続OK: ', window.ethereum.isMetaMask);
+          const web3 = new Web3(window.ethereum);
+          console.log('Web3インスタンス作成完了: ', web3.version);
           
           // ネットワーク接続を確認
-          const chainId = await ethereum.request({ method: 'eth_chainId' });
+          const chainId = await web3.eth.net.getId();
           console.log('現在のネットワークチェーンID:', chainId);
+          console.log('現在のネットワークチェーンID(型):', typeof chainId);
           
-          // Polygon MumbaiテストネットのチェーンID "0x13882" (10進数では 80002)
-          const targetChainId = '0x13882'; // Polygon Mumbai (80002)
-          if (chainId !== targetChainId) {
-            console.log(`ネットワークの切り替えが必要です。現在: ${chainId}, 必要: ${targetChainId} (Polygon Mumbai)`);
-            setMintStatus('Polygon Mumbaiテストネットに切り替えてください...');
-            
+          // sepoliaテストネットのチェーンID "0xaa36a7" (10進数では 11155111)
+          const targetChainId = '0xaa36a7'; // sepoliaテストネット
+          const targetChainIdDec = parseInt(targetChainId, 16);
+          console.log('目標チェーンID(10進数):', targetChainIdDec);
+
+          // 現在のチェーンIDと目標チェーンIDを比較
+          const isCorrectNetwork = chainId === targetChainId;
+          
+          if (!isCorrectNetwork) {
+            console.log('Sepoliaネットワークに切り替えが必要です');
+            // sepoliaテストネットに切り替え
             try {
-              // ネットワークの切り替えをリクエスト
-              await ethereum.request({
+              // Web3.jsを通じてプロバイダーのリクエストを実行
+              await web3.eth.currentProvider.request({
                 method: 'wallet_switchEthereumChain',
-                params: [{ chainId: targetChainId }],
+                params: [{ chainId: targetChainId }] // SepoliaのチェーンID（16進数）
               });
-              console.log('ネットワークを切り替えました');
+              console.log('Sepoliaネットワークに切り替え成功');
             } catch (switchError: any) {
-              console.error('ネットワーク切り替えエラー:', switchError);
-              
-              // ネットワークが未追加の場合（4902エラー）
+              console.log('切り替えエラー発生:', switchError.code);
+              // このエラーコードは、ユーザーがチェーンを持っていないことを示します
               if (switchError.code === 4902) {
-                setMintStatus('Polygon Mumbaiテストネットが設定されていません。追加しています...');
-                
                 try {
-                  // Polygon Mumbaiネットワークを追加
-                  await ethereum.request({
+                  // Web3.jsを通じてプロバイダーのリクエストを実行
+                  await web3.eth.currentProvider.request({
                     method: 'wallet_addEthereumChain',
                     params: [{
-                      chainId: '0x13882',
-                      chainName: 'Polygon Mumbai Testnet',
-                      nativeCurrency: {
-                        name: 'MATIC',
-                        symbol: 'MATIC',
-                        decimals: 18
-                      },
-                      rpcUrls: ['https://rpc-mumbai.polygon.technology/'],
-                      blockExplorerUrls: ['https://mumbai.polygonscan.com/']
+                      chainId: targetChainId,
+                      chainName: 'Sepolia Test Network',
+                      nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                      rpcUrls: ['https://rpc.sepolia.org', 'https://sepolia.infura.io/v3/'],
+                      blockExplorerUrls: ['https://sepolia.etherscan.io']
                     }]
                   });
-                  console.log('Polygon Mumbaiテストネットを追加しました');
+                  console.log('Sepoliaネットワーク追加成功');
                 } catch (addError) {
-                  console.error('ネットワーク追加エラー:', addError);
-                  setMintStatus('Polygon Mumbaiテストネットの追加に失敗しました。手動で追加してください。');
-                  throw new Error('Polygon Mumbaiテストネットの追加に失敗しました');
+                  console.error('Sepoliaネットワーク追加エラー:', addError);
+                  throw new Error('Sepoliaテストネットの追加に失敗しました');
                 }
               } else {
-                throw new Error('ネットワークの切り替えに失敗しました: ' + (switchError.message || '不明なエラー'));
+                console.error('ネットワーク切り替えエラー:', switchError);
+                throw new Error('ネットワークの切り替えに失敗しました');
               }
             }
+          } else {
+            console.log('既にSepoliaネットワークに接続されています');
           }
-          
-          // Web3のインスタンスを作成
-          const web3 = new Web3(ethereum);
           
           // ガス見積もりを取得
           try {
@@ -282,10 +357,7 @@ export default function Register() {
             };
             
             console.log('ガス見積もり用データ:', estimateGasObj);
-            const estimatedGas = await ethereum.request({
-              method: 'eth_estimateGas',
-              params: [estimateGasObj]
-            });
+            const estimatedGas = await web3.eth.estimateGas(estimateGasObj);
             
             console.log('見積もりガス:', estimatedGas);
             
@@ -305,10 +377,7 @@ export default function Register() {
             console.log('トランザクション署名をリクエスト:', ethereumTxData);
             
             // 署名リクエストを送信
-            const txHash = await ethereum.request({
-              method: 'eth_sendTransaction',
-              params: [ethereumTxData],
-            });
+            const txHash = await web3.eth.sendTransaction(ethereumTxData);
             
             console.log('トランザクション署名完了・送信済み:', txHash);
             setMintStatus(`SBTをミント中...トランザクションハッシュ: ${txHash.substring(0, 10)}...`);
@@ -355,10 +424,7 @@ export default function Register() {
             console.log('ガス見積もり失敗後のフォールバック:', ethereumTxData);
             
             // 署名リクエストを送信
-            const txHash = await ethereum.request({
-              method: 'eth_sendTransaction',
-              params: [ethereumTxData],
-            });
+            const txHash = await web3.eth.sendTransaction(ethereumTxData);
             
             console.log('トランザクション署名完了・送信済み:', txHash);
             setMintStatus(`SBTをミント中...トランザクションハッシュ: ${txHash.substring(0, 10)}...`);
@@ -368,7 +434,7 @@ export default function Register() {
             
             // 次のトークンIDをインクリメント
             setLastTokenId(tokenId + 1);
-            return;
+            return tokenId;
           }
         } catch (signError: any) {
           console.error('署名エラー詳細:', signError);
@@ -459,58 +525,210 @@ export default function Register() {
     }
   };
 
-  const saveIPFS = async () => {
+  const registerENS = async (tokenId: number) => {
+    setIsRegisteringENS(true);
+    setMintStatus('ENSドメインを登録中...');
 
-    const jsonData = {
-        name: formData.name,
-        company: formData.company,
-        email: formData.email,
-        telNumber: formData.telNumber,
-        url: formData.url,
-        profileText: formData.profileText
-    //   },
-    //   timestamp: new Date().toISOString()
-    };
+    try {
+      // トークンIDをJSONに保存
+      const jsonData = {
+        tokenId: tokenId,
+      };
 
-    const pinataBody = {
+      // PINATAリクエストパラメータ
+      const pinataBody = {
         pinataContent: jsonData,
         pinataMetadata: {
-          name: `${formData.name}.json`,
+          name: `${tokenId}.json`,
           keyvalues: {
             source: 'hello-app',
             timestamp: new Date().toISOString(),
-            // recordCount: jsonData.length || 0
           }
         },
         pinataOptions: {
-          cidVersion: 1
+          cidVersion: 0
         }
       };
 
-    console.log(jsonData);
+      // PINATA APIリクエスト
+      const response = await fetch(PINATA_API_URL, {
+        method: 'POST',
+        body: JSON.stringify(pinataBody),
+        headers: {
+          'Authorization': `Bearer ${PINATA_JWT}`,
+          'Content-Type': 'application/json',
+        }
+      });
 
-    const response = await fetch(PINATA_API_URL, {
-      method: 'POST',
-      body: JSON.stringify(pinataBody),
-      headers: {
-        'Authorization': `Bearer ${PINATA_JWT}`,
-        'Content-Type': 'application/json',
+      // PINATA APIレスポンス
+      const responseData = await response.json();
+      console.log('responseData', responseData.IpfsHash);
+
+      // sepoliaテストネットに切り替え
+      const ethereum = (window as any).ethereum;
+      if (!ethereum) {
+        throw new Error('MetaMaskが見つかりません。');
       }
-    });
 
-    console.log(response);
-    const responseData = await response.json();
-    console.log(responseData);
-    
-    if (response.ok) {
-      console.log('Successfully uploaded to IPFS with CID:', responseData.IpfsHash);
-      // CIDを保存して後でNFTミント時に使用
-      return responseData.IpfsHash;
-    } else {
-      console.error('Failed to upload to IPFS:', responseData);
-      throw new Error('Failed to upload to IPFS');
+      // ネットワーク接続を確認
+      const chainId = await ethereum.request({ method: 'eth_chainId' });
+      console.log('現在のネットワークチェーンID:', chainId);
+      console.log('現在のネットワークチェーンID(型):', typeof chainId);
+      
+      // sepoliaテストネットのチェーンID "0xaa36a7" (10進数では 11155111)
+      const targetChainId = '0xaa36a7'; // sepoliaテストネット
+      const targetChainIdDec = parseInt(targetChainId, 16);
+      console.log('目標チェーンID(10進数):', targetChainIdDec);
+
+      // Web3インスタンスの作成
+      const web3 = new Web3(window.ethereum);
+      
+      // 現在のチェーンIDと目標チェーンIDを比較
+      const isCorrectNetwork = chainId === targetChainId;
+      
+      if (!isCorrectNetwork) {
+        console.log('Sepoliaネットワークに切り替えが必要です');
+        // sepoliaテストネットに切り替え
+        try {
+          // Web3.jsを通じてプロバイダーのリクエストを実行
+          await web3.eth.currentProvider.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: targetChainId }] // SepoliaのチェーンID（16進数）
+          });
+          console.log('Sepoliaネットワークに切り替え成功');
+        } catch (switchError: any) {
+          console.log('切り替えエラー発生:', switchError.code);
+          // このエラーコードは、ユーザーがチェーンを持っていないことを示します
+          if (switchError.code === 4902) {
+            try {
+              // Web3.jsを通じてプロバイダーのリクエストを実行
+              await web3.eth.currentProvider.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                  chainId: targetChainId,
+                  chainName: 'Sepolia Test Network',
+                  nativeCurrency: { name: 'ETH', symbol: 'SepoliaETH', decimals: 18 },
+                  rpcUrls: ['https://rpc.sepolia.org', 'https://sepolia.infura.io/v3/'],
+                  blockExplorerUrls: ['https://sepolia.etherscan.io']
+                }]
+              });
+              console.log('Sepoliaネットワーク追加成功');
+            } catch (addError) {
+              console.error('Sepoliaネットワーク追加エラー:', addError);
+              throw new Error('Sepoliaテストネットの追加に失敗しました');
+            }
+          } else {
+            console.error('ネットワーク切り替えエラー:', switchError);
+            throw new Error('ネットワークの切り替えに失敗しました');
+          }
+        }
+      } else {
+        console.log('既にSepoliaネットワークに接続されています');
+      }
+
+      // コネクト中のアドレスを取得
+      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+      const walletAddress = accounts[0];
+
+      // 英数字のランダムな文字列を生成
+      const randomString = Math.random().toString(36).substring(2, 15);
+
+      // ランダムなシークレットを生成
+      const secret = web3.utils.randomHex(32);
+
+      // 期間を指定
+      const duration = 28 * 24 * 60 * 60; // 1年
+
+      // レジスタコントローラーのコントラクトインスタンスを作成
+      const ensRegisterController = new web3.eth.Contract(ensRegisterControllerAbi, ENS_REGISTER_CONTROLLER_ADDRESS);
+
+      // レジスタコントローラーのコミットメントを作成
+      const commitment = await ensRegisterController.methods.makeCommitment(
+        randomString, 
+        walletAddress,
+        duration,
+        secret,
+        ENS_RESOLVER_ADDRESS,
+        [],
+        0,
+        0).call();
+
+      console.log('コミットメントを作成しました：', commitment);
+
+      // コミットメントを送信
+      const tx1 = await ensRegisterController.methods.commit(commitment).send({
+        from: walletAddress,
+        gas: '1000000',
+      });
+
+      console.log('コミットメントを送信しました：', tx1.transactionHash);
+
+      // コミットメント期間待機(1分間)
+      console.log('コミットメント期間待機中...');
+      await new Promise(resolve => setTimeout(resolve, 60000));
+
+      // 登録料金を計算
+      const price = await ensRegisterController.methods.rentPrice(randomString, duration).call();
+      console.log(`登録料金: ${web3.utils.fromWei(price.base, 'ether')} ETH`);
+
+      // ドメインを登録
+      const tx2 = await ensRegisterController.methods.register(
+        randomString,
+        walletAddress,
+        duration,
+        secret,
+        ENS_RESOLVER_ADDRESS,
+        [],
+        0,
+        0).send({
+          from: walletAddress,
+          value: web3.utils.toHex(price.base),
+          gas: '1000000',
+      });
+
+      console.log('ドメインを登録しました：', tx2.transactionHash);
+
+      // ENSネームをノードIDに変換
+      let node = '0x0000000000000000000000000000000000000000000000000000000000000000';
+      if(randomString) {
+        let re_randomString = randomString + '.eth';
+        const labels = re_randomString.toLowerCase().split('.');
+        for (let i = labels.length - 1; i >= 0; i--) {
+          let labelHash = web3.utils.keccak256(web3.utils.utf8ToHex(labels[i]));
+          node = web3.utils.keccak256(node + labelHash.slice(2));
+        }
+      }
+      // const node = ethers.utils.namehash(randomString);
+
+      // cidをENSコンテンツハッシュ形式にエンコード
+      const contentHash = encodeContentHash(responseData.IpfsHash);
+
+      // ノードIDとコンテンツハッシュをセット
+      const resolver = new web3.eth.Contract(ensResolverAbi, ENS_RESOLVER_ADDRESS);
+      const tx3 = await resolver.methods.setContenthash(node, contentHash).send({
+        from: walletAddress,
+        gas: '1000000',
+      });
+
+      console.log('ノードIDとコンテンツハッシュをセットしました：', tx3);
+      
+      // コンテンツハッシュを取得
+      const contentsHash = await resolver.methods.contenthash(node).call();
+      console.log('コンテンツハッシュを取得しました：', contentsHash);
+
+      // コンテンツハッシュをIPFS CIDにデコード
+      const ipfsCid = decodeContentHash(contentHash);
+      console.log('IPFS CID：', ipfsCid);
+      console.log('ENSドメイン：', randomString + '.eth');
+      
+      setMintStatus(`ENSドメイン「${randomString}.eth」の登録が完了しました！`);
+    } catch (error: any) {
+      console.error('ENS登録エラー:', error);
+      setMintStatus(`ENS登録中にエラーが発生しました: ${error.message || '不明なエラー'}`);
+    } finally {
+      setIsRegisteringENS(false);
     }
-  }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -525,29 +743,41 @@ export default function Register() {
       // First save to IPFS
       const ipfsCid = await saveIPFS();
       // Then mint the SBT
-      await mintSBT(ipfsCid);
-      // We could add navigation here
+      // const token_Id = await mintSBT(ipfsCid);
+      // if (token_Id !== undefined) {
+      //   await registerENS(token_Id);
+      // } else {
+      //   console.log('SBTのミントが完了していないため、ENSの登録はスキップします');
+      // }
+      await registerENS(17774);
     } catch (error) {
       console.error('Error during form submission:', error);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl p-8">
+    <div className="min-h-screen bg-blue-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl p-8 border border-blue-100">
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-gray-900">ユーザー登録</h2>
-          <p className="mt-2 text-sm text-gray-600">
+          <h2 className="text-2xl font-bold text-blue-800">ユーザー登録</h2>
+          <p className="mt-2 text-sm text-blue-600">
             情報を入力して、SBTをミントしましょう
           </p>
         </div>
         
         <div className="mb-6">
-          <h3 className="text-md font-medium text-gray-700 mb-2">ウォレット接続</h3>
-          <WalletConnect onConnect={handleWalletConnect} />
+          <h3 className="text-md font-medium text-blue-700 mb-2">ウォレット接続</h3>
+          <WalletConnect 
+            onConnect={handleWalletConnect} 
+            redirectPath="/register"
+            onDisconnect={() => {
+              // This will automatically redirect to home page
+              console.log('Wallet disconnected from register page');
+            }}
+          />
           
           {walletAddress && (
-            <div className="mt-2 text-sm text-green-600">
+            <div className="mt-2 text-sm text-blue-600">
               ウォレット接続済み: {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
             </div>
           )}
@@ -555,7 +785,7 @@ export default function Register() {
         
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="name" className="block text-sm font-medium text-blue-700">
               名前
             </label>
             <input
@@ -565,13 +795,13 @@ export default function Register() {
               required
               value={formData.name}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm p-2 border"
+              className="mt-1 block w-full rounded-md border-blue-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
               placeholder="山田 太郎"
             />
           </div>
           
           <div>
-            <label htmlFor="company" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="company" className="block text-sm font-medium text-blue-700">
               会社名
             </label>
             <input
@@ -580,13 +810,13 @@ export default function Register() {
               id="company"
               value={formData.company}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm p-2 border"
+              className="mt-1 block w-full rounded-md border-blue-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
               placeholder="株式会社サンプル"
             />
           </div>
           
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="email" className="block text-sm font-medium text-blue-700">
               メールアドレス
             </label>
             <input
@@ -596,13 +826,13 @@ export default function Register() {
               required
               value={formData.email}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm p-2 border"
+              className="mt-1 block w-full rounded-md border-blue-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
               placeholder="your-email@example.com"
             />
           </div>
           
           <div>
-            <label htmlFor="telNumber" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="telNumber" className="block text-sm font-medium text-blue-700">
               電話番号
             </label>
             <input
@@ -611,13 +841,13 @@ export default function Register() {
               id="telNumber"
               value={formData.telNumber}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm p-2 border"
+              className="mt-1 block w-full rounded-md border-blue-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
               placeholder="03-xxxx-xxxx"
             />
           </div>
           
           <div>
-            <label htmlFor="url" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="url" className="block text-sm font-medium text-blue-700">
               URL
             </label>
             <input
@@ -626,13 +856,13 @@ export default function Register() {
               id="url"
               value={formData.url}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm p-2 border"
+              className="mt-1 block w-full rounded-md border-blue-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
               placeholder="https://example.com"
             />
           </div>
           
           <div>
-            <label htmlFor="profileText" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="profileText" className="block text-sm font-medium text-blue-700">
               プロフィール
             </label>
             <textarea
@@ -641,7 +871,7 @@ export default function Register() {
               rows={4}
               value={formData.profileText}
               onChange={handleChange}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm p-2 border"
+              className="mt-1 block w-full rounded-md border-blue-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border"
               placeholder="自己紹介をお書きください"
             />
           </div>
@@ -649,18 +879,27 @@ export default function Register() {
           <div className="flex justify-between items-center pt-4">            
             <button
               type="submit"
-              className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500"
-              disabled={isMinting || !walletAddress}
+              className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              disabled={isMinting || isRegisteringENS || !walletAddress}
             >
-              {isMinting ? 'ミント中...' : 'SBTをミント'}
+              {isMinting ? 'ミント中...' : isRegisteringENS ? 'ENS登録中...' : 'SBTをミント'}
             </button>
           </div>
           
           {mintStatus && (
             <div className={`mt-4 p-3 rounded-md ${
-              mintStatus.includes('正常') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+              mintStatus.includes('完了') || mintStatus.includes('正常') ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
             }`}>
               {mintStatus}
+              {isRegisteringENS && (
+                <div className="mt-2 flex items-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>ENSドメインを登録中です。この処理には数分かかることがあります...</span>
+                </div>
+              )}
             </div>
           )}
         </form>
